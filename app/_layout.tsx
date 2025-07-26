@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, View, Text } from 'react-native';
 import { useEffect, useState } from 'react';
 import { blink } from '../lib/blink';
 
@@ -18,7 +18,28 @@ export default function RootLayout() {
   }, []);
 
   if (loading) {
-    return null; // Show loading screen
+    return (
+      <View style={{ 
+        flex: 1, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#FFFFFF'
+      }}>
+        <Text style={{ 
+          fontSize: 24, 
+          fontWeight: 'bold', 
+          color: '#A8E6CF',
+          marginBottom: 16 
+        }}>
+          🥗 AI Calories Tracker
+        </Text>
+        <Text style={{ 
+          color: colorScheme === 'dark' ? '#CCCCCC' : '#666666' 
+        }}>
+          Loading your healthy habits...
+        </Text>
+      </View>
+    );
   }
 
   return (

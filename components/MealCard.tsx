@@ -5,13 +5,13 @@ import { Ionicons } from '@expo/vector-icons';
 interface MealCardProps {
   meal: {
     id: string;
-    food_name: string;
+    foodName: string;
     calories: number;
     notes?: string;
-    image_url?: string;
-    meal_type?: string;
+    imageUrl?: string;
+    mealType?: string;
     emoji?: string;
-    created_at: string;
+    createdAt: string;
   };
   onPress: () => void;
   isDark?: boolean;
@@ -57,16 +57,16 @@ export function MealCard({ meal, onPress, isDark = false }: MealCardProps) {
       <View className="flex-row">
         {/* Meal Image or Emoji */}
         <View className="mr-4">
-          {meal.image_url ? (
+          {meal.imageUrl ? (
             <Image
-              source={{ uri: meal.image_url }}
+              source={{ uri: meal.imageUrl }}
               className="w-16 h-16 rounded-xl"
               style={{ backgroundColor: '#F0F0F0' }}
             />
           ) : (
             <View 
               className="w-16 h-16 rounded-xl items-center justify-center"
-              style={{ backgroundColor: getMealTypeColor(meal.meal_type || 'snack') }}
+              style={{ backgroundColor: getMealTypeColor(meal.mealType || 'snack') }}
             >
               <Text className="text-2xl">{meal.emoji || '🍽️'}</Text>
             </View>
@@ -77,7 +77,7 @@ export function MealCard({ meal, onPress, isDark = false }: MealCardProps) {
         <View className="flex-1">
           <View className="flex-row items-center justify-between mb-1">
             <Text className="text-lg font-semibold" style={{ color: textColor }}>
-              {meal.food_name}
+              {meal.foodName}
             </Text>
             <View className="flex-row items-center">
               <Ionicons name="flame" size={16} color="#FF6B6B" />
@@ -91,14 +91,14 @@ export function MealCard({ meal, onPress, isDark = false }: MealCardProps) {
             <View className="flex-row items-center">
               <View 
                 className="px-2 py-1 rounded-full mr-2"
-                style={{ backgroundColor: getMealTypeColor(meal.meal_type || 'snack') }}
+                style={{ backgroundColor: getMealTypeColor(meal.mealType || 'snack') }}
               >
                 <Text className="text-xs font-medium text-white capitalize">
-                  {meal.meal_type || 'Snack'}
+                  {meal.mealType || 'Snack'}
                 </Text>
               </View>
               <Text className="text-sm" style={{ color: subtextColor }}>
-                {formatTime(meal.created_at)}
+                {formatTime(meal.createdAt)}
               </Text>
             </View>
             
