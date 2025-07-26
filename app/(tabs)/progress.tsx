@@ -1,467 +1,418 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Dimensions } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BarChart, LineChart } from 'react-native-chart-kit';
-import { Calendar, TrendingUp, Target, Zap } from 'lucide-react-native';
-import { blink } from '@/lib/blink';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  useColorScheme,
+  Dimensions,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { blink } from '../../lib/blink';
+import { CircularProgress } from '../../components/CircularProgress';
 
-const screenWidth = Dimensions.get('window').width;
+const { width } = Dimensions.get('window');
 
-interface DailyData {
-  date: string;
-  calories: number;
-  meals: number;
-}
-
-export default function Progress() {
-  const [weeklyData, setWeeklyData] = useState<DailyData[]>([]);
-  const [monthlyData, setMonthlyData] = useState<DailyData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [userGoal, setUserGoal] = useState(2000);
-  const [streak, setStreak] = useState(0);
+export default function ProgressScreen() {
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  
+  const [user, setUser] = useState(null);
+  const [selectedPeriod, setSelectedPeriod] = useState('week'); // week, month
+  const [weeklyData, setWeeklyData] = useState([]);
+  const [monthlyData, setMonthlyData] = useState([]);
+  const [stats, setStats] = useState({
+    avgCalories: 0,
+    totalMeals: 0,
+    streakDays: 0,
+    waterAvg: 0,
+  });
 
   useEffect(() => {
-    loadProgressData();
+    const unsubscribe = blink.auth.onAuthStateChanged((state) => {
+      setUser(state.user);
+      if (state.user) {
+        loadProgressData();
+      }
+    });
+    return unsubscribe;
   }, []);
 
   const loadProgressData = async () => {
     try {
-      const user = await blink.auth.me();
-      if (!user) return;
-
-      // Load user goals
-      const goalsData = await blink.db.userGoals.list({
-        where: { user_id: user.id },
-        limit: 1
-      });
-
-      if (goalsData && goalsData.length > 0) {
-        setUserGoal(goalsData[0].daily_calorie_goal);
-      }
-
-      // Load meals from last 30 days
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const meals = await blink.db.meals.list({
-        where: { 
-          user_id: user.id,
-          created_at: { gte: thirtyDaysAgo.toISOString() }
-        },
-        orderBy: { created_at: 'desc' }
-      });
-
-      // Process data by day
-      const dailyStats = new Map<string, { calories: number; meals: number }>();
+      // Load last 7 days data
+      const weekData = [];
+      const monthData = [];
       
-      meals?.forEach(meal => {
-        const date = new Date(meal.created_at).toISOString().split('T')[0];
-        const existing = dailyStats.get(date) || { calories: 0, meals: 0 };
-        dailyStats.set(date, {
-          calories: existing.calories + meal.calories,
-          meals: existing.meals + 1
-        });
-      });
-
-      // Generate last 7 days data
-      const weekly: DailyData[] = [];
       for (let i = 6; i >= 0; i--) {
         const date = new Date();
         date.setDate(date.getDate() - i);
         const dateStr = date.toISOString().split('T')[0];
-        const stats = dailyStats.get(dateStr) || { calories: 0, meals: 0 };
         
-        weekly.push({
-          date: dateStr,
-          calories: stats.calories,
-          meals: stats.meals
-        });
-      }
-
-      // Generate last 30 days data (weekly averages)
-      const monthly: DailyData[] = [];
-      for (let i = 3; i >= 0; i--) {
-        const endDate = new Date();
-        endDate.setDate(endDate.getDate() - (i * 7));
-        const startDate = new Date(endDate);
-        startDate.setDate(startDate.getDate() - 6);
-
-        let totalCalories = 0;
-        let totalMeals = 0;
-        let daysWithData = 0;
-
-        for (let j = 0; j < 7; j++) {
-          const checkDate = new Date(startDate);
-          checkDate.setDate(checkDate.getDate() + j);
-          const dateStr = checkDate.toISOString().split('T')[0];
-          const stats = dailyStats.get(dateStr);
-          
-          if (stats && stats.meals > 0) {
-            totalCalories += stats.calories;
-            totalMeals += stats.meals;
-            daysWithData++;
+        // Get meals for this day
+        const meals = await blink.db.meals.list({
+          where: { 
+            user_id: user?.id,
+            created_at: { 
+              gte: dateStr + 'T00:00:00.000Z',
+              lt: dateStr + 'T23:59:59.999Z'
+            }
           }
-        }
-
-        monthly.push({
-          date: `Week ${4 - i}`,
-          calories: daysWithData > 0 ? Math.round(totalCalories / daysWithData) : 0,
-          meals: daysWithData > 0 ? Math.round(totalMeals / daysWithData) : 0
+        });
+        
+        // Get water intake for this day
+        const water = await blink.db.hydration_logs.list({
+          where: { 
+            user_id: user?.id,
+            logged_at: { 
+              gte: dateStr + 'T00:00:00.000Z',
+              lt: dateStr + 'T23:59:59.999Z'
+            }
+          }
+        });
+        
+        const totalCalories = meals.reduce((sum, meal) => sum + (meal.calories || 0), 0);
+        const totalWater = water.reduce((sum, log) => sum + (log.glasses || 0), 0);
+        
+        weekData.push({
+          date: dateStr,
+          day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+          calories: totalCalories,
+          meals: meals.length,
+          water: totalWater,
         });
       }
-
-      setWeeklyData(weekly);
-      setMonthlyData(monthly);
-
-      // Calculate streak
-      let currentStreak = 0;
-      const today = new Date();
       
-      for (let i = 0; i < 30; i++) {
-        const checkDate = new Date(today);
-        checkDate.setDate(checkDate.getDate() - i);
-        const dateStr = checkDate.toISOString().split('T')[0];
-        const stats = dailyStats.get(dateStr);
+      // Load last 30 days for monthly view
+      for (let i = 29; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
         
-        if (stats && stats.meals > 0) {
-          currentStreak++;
+        const meals = await blink.db.meals.list({
+          where: { 
+            user_id: user?.id,
+            created_at: { 
+              gte: dateStr + 'T00:00:00.000Z',
+              lt: dateStr + 'T23:59:59.999Z'
+            }
+          }
+        });
+        
+        const totalCalories = meals.reduce((sum, meal) => sum + (meal.calories || 0), 0);
+        
+        monthData.push({
+          date: dateStr,
+          calories: totalCalories,
+          meals: meals.length,
+        });
+      }
+      
+      setWeeklyData(weekData);
+      setMonthlyData(monthData);
+      
+      // Calculate stats
+      const avgCalories = weekData.reduce((sum, day) => sum + day.calories, 0) / 7;
+      const totalMeals = weekData.reduce((sum, day) => sum + day.meals, 0);
+      const waterAvg = weekData.reduce((sum, day) => sum + day.water, 0) / 7;
+      
+      // Calculate streak (consecutive days with meals logged)
+      let streak = 0;
+      for (let i = weekData.length - 1; i >= 0; i--) {
+        if (weekData[i].meals > 0) {
+          streak++;
         } else {
           break;
         }
       }
       
-      setStreak(currentStreak);
-
+      setStats({
+        avgCalories: Math.round(avgCalories),
+        totalMeals,
+        streakDays: streak,
+        waterAvg: Math.round(waterAvg * 10) / 10,
+      });
+      
     } catch (error) {
       console.error('Error loading progress data:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const chartConfig = {
-    backgroundColor: '#FFFFFF',
-    backgroundGradientFrom: '#FFFFFF',
-    backgroundGradientTo: '#FFFFFF',
-    decimalPlaces: 0,
-    color: (opacity = 1) => `rgba(34, 197, 94, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(100, 116, 139, ${opacity})`,
-    style: {
-      borderRadius: 16,
-    },
-    propsForDots: {
-      r: '6',
-      strokeWidth: '2',
-      stroke: '#22C55E',
-    },
-  };
-
-  const weeklyCaloriesData = {
-    labels: weeklyData.map(d => {
-      const date = new Date(d.date);
-      return date.toLocaleDateString('en-US', { weekday: 'short' });
-    }),
-    datasets: [
-      {
-        data: weeklyData.map(d => d.calories),
-      },
-    ],
-  };
-
-  const monthlyCaloriesData = {
-    labels: monthlyData.map(d => d.date),
-    datasets: [
-      {
-        data: monthlyData.map(d => d.calories),
-      },
-    ],
-  };
-
-  if (loading) {
+  const renderBarChart = (data, maxValue) => {
+    const chartWidth = width - 80;
+    const chartHeight = 150;
+    const barWidth = chartWidth / data.length - 8;
+    
     return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading progress...</Text>
+      <View className="flex-row items-end justify-between" style={{ height: chartHeight }}>
+        {data.map((item, index) => {
+          const barHeight = maxValue > 0 ? (item.calories / maxValue) * (chartHeight - 40) : 0;
+          
+          return (
+            <View key={index} className="items-center">
+              <View
+                className="rounded-t-lg mb-2"
+                style={{
+                  width: barWidth,
+                  height: Math.max(barHeight, 4),
+                  backgroundColor: item.calories > 0 ? '#A8E6CF' : '#E0E0E0',
+                }}
+              />
+              <Text 
+                className="text-xs font-medium"
+                style={{ color: isDark ? '#CCCCCC' : '#666666' }}
+              >
+                {selectedPeriod === 'week' ? item.day : item.date.split('-')[2]}
+              </Text>
+            </View>
+          );
+        })}
       </View>
+    );
+  };
+
+  const backgroundColor = isDark ? '#1A1A1A' : '#FFFFFF';
+  const cardBackground = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(168, 230, 207, 0.1)';
+  const textColor = isDark ? '#FFFFFF' : '#333333';
+  const subtextColor = isDark ? '#CCCCCC' : '#666666';
+
+  if (!user) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor }}>
+        <View className="flex-1 justify-center items-center px-6">
+          <Text className="text-xl font-bold mb-4" style={{ color: textColor }}>
+            Please sign in to view progress
+          </Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
-  const todayCalories = weeklyData[weeklyData.length - 1]?.calories || 0;
-  const weekAverage = weeklyData.reduce((sum, d) => sum + d.calories, 0) / weeklyData.length;
+  const currentData = selectedPeriod === 'week' ? weeklyData : monthlyData;
+  const maxCalories = Math.max(...currentData.map(d => d.calories), 2000);
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={['#22C55E', '#16A34A']}
-        style={styles.header}
+    <SafeAreaView style={{ flex: 1, backgroundColor }}>
+      <ScrollView 
+        className="flex-1 px-4"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120 }}
       >
-        <Text style={styles.headerTitle}>Your Progress</Text>
-        <Text style={styles.headerSubtitle}>Track your healthy journey</Text>
-      </LinearGradient>
+        {/* Header */}
+        <View className="flex-row justify-between items-center mt-4 mb-6">
+          <View>
+            <Text className="text-2xl font-bold" style={{ color: textColor }}>
+              Your Progress
+            </Text>
+            <Text className="text-sm" style={{ color: subtextColor }}>
+              Track your healthy journey
+            </Text>
+          </View>
+          <View className="flex-row">
+            <TouchableOpacity
+              onPress={() => setSelectedPeriod('week')}
+              className={`px-4 py-2 rounded-l-full ${
+                selectedPeriod === 'week' ? 'bg-[#A8E6CF]' : ''
+              }`}
+              style={{ 
+                backgroundColor: selectedPeriod === 'week' ? '#A8E6CF' : cardBackground 
+              }}
+            >
+              <Text 
+                className="font-medium"
+                style={{ 
+                  color: selectedPeriod === 'week' ? 'white' : textColor 
+                }}
+              >
+                Week
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setSelectedPeriod('month')}
+              className={`px-4 py-2 rounded-r-full ${
+                selectedPeriod === 'month' ? 'bg-[#A8E6CF]' : ''
+              }`}
+              style={{ 
+                backgroundColor: selectedPeriod === 'month' ? '#A8E6CF' : cardBackground 
+              }}
+            >
+              <Text 
+                className="font-medium"
+                style={{ 
+                  color: selectedPeriod === 'month' ? 'white' : textColor 
+                }}
+              >
+                Month
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
-      <ScrollView style={styles.content}>
         {/* Stats Cards */}
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Zap size={24} color="#22C55E" />
-            <Text style={styles.statValue}>{todayCalories}</Text>
-            <Text style={styles.statLabel}>Today's Calories</Text>
-          </View>
-
-          <View style={styles.statCard}>
-            <Target size={24} color="#F59E0B" />
-            <Text style={styles.statValue}>{userGoal}</Text>
-            <Text style={styles.statLabel}>Daily Goal</Text>
-          </View>
-
-          <View style={styles.statCard}>
-            <TrendingUp size={24} color="#8B5CF6" />
-            <Text style={styles.statValue}>{Math.round(weekAverage)}</Text>
-            <Text style={styles.statLabel}>Week Average</Text>
-          </View>
-
-          <View style={styles.statCard}>
-            <Calendar size={24} color="#EF4444" />
-            <Text style={styles.statValue}>{streak}</Text>
-            <Text style={styles.statLabel}>Day Streak</Text>
-          </View>
-        </View>
-
-        {/* Weekly Chart */}
-        <View style={styles.chartSection}>
-          <Text style={styles.chartTitle}>This Week</Text>
-          {weeklyData.length > 0 && (
-            <LineChart
-              data={weeklyCaloriesData}
-              width={screenWidth - 40}
-              height={220}
-              chartConfig={chartConfig}
-              bezier
-              style={styles.chart}
-            />
-          )}
-        </View>
-
-        {/* Monthly Chart */}
-        <View style={styles.chartSection}>
-          <Text style={styles.chartTitle}>Monthly Trend</Text>
-          {monthlyData.length > 0 && (
-            <BarChart
-              data={monthlyCaloriesData}
-              width={screenWidth - 40}
-              height={220}
-              chartConfig={chartConfig}
-              style={styles.chart}
-              yAxisLabel=""
-              yAxisSuffix=" cal"
-            />
-          )}
-        </View>
-
-        {/* Goal Progress */}
-        <View style={styles.goalSection}>
-          <Text style={styles.goalTitle}>Daily Goal Progress</Text>
-          <View style={styles.goalProgress}>
-            <View style={styles.progressBar}>
-              <View 
-                style={[
-                  styles.progressFill, 
-                  { width: `${Math.min((todayCalories / userGoal) * 100, 100)}%` }
-                ]} 
-              />
+        <View className="flex-row flex-wrap justify-between mb-6">
+          <View 
+            className="w-[48%] rounded-2xl p-4 mb-4"
+            style={{ backgroundColor: cardBackground }}
+          >
+            <View className="flex-row items-center mb-2">
+              <Ionicons name="flame" size={20} color="#FF6B6B" />
+              <Text className="text-sm font-medium ml-2" style={{ color: textColor }}>
+                Avg Calories
+              </Text>
             </View>
-            <Text style={styles.goalText}>
-              {Math.round((todayCalories / userGoal) * 100)}% of daily goal
+            <Text className="text-2xl font-bold" style={{ color: textColor }}>
+              {stats.avgCalories}
+            </Text>
+            <Text className="text-xs" style={{ color: subtextColor }}>
+              per day
+            </Text>
+          </View>
+
+          <View 
+            className="w-[48%] rounded-2xl p-4 mb-4"
+            style={{ backgroundColor: cardBackground }}
+          >
+            <View className="flex-row items-center mb-2">
+              <Ionicons name="restaurant" size={20} color="#A8E6CF" />
+              <Text className="text-sm font-medium ml-2" style={{ color: textColor }}>
+                Total Meals
+              </Text>
+            </View>
+            <Text className="text-2xl font-bold" style={{ color: textColor }}>
+              {stats.totalMeals}
+            </Text>
+            <Text className="text-xs" style={{ color: subtextColor }}>
+              this week
+            </Text>
+          </View>
+
+          <View 
+            className="w-[48%] rounded-2xl p-4 mb-4"
+            style={{ backgroundColor: cardBackground }}
+          >
+            <View className="flex-row items-center mb-2">
+              <Ionicons name="trophy" size={20} color="#FFD700" />
+              <Text className="text-sm font-medium ml-2" style={{ color: textColor }}>
+                Streak
+              </Text>
+            </View>
+            <Text className="text-2xl font-bold" style={{ color: textColor }}>
+              {stats.streakDays}
+            </Text>
+            <Text className="text-xs" style={{ color: subtextColor }}>
+              days
+            </Text>
+          </View>
+
+          <View 
+            className="w-[48%] rounded-2xl p-4 mb-4"
+            style={{ backgroundColor: cardBackground }}
+          >
+            <View className="flex-row items-center mb-2">
+              <Ionicons name="water" size={20} color="#4FC3F7" />
+              <Text className="text-sm font-medium ml-2" style={{ color: textColor }}>
+                Water Avg
+              </Text>
+            </View>
+            <Text className="text-2xl font-bold" style={{ color: textColor }}>
+              {stats.waterAvg}
+            </Text>
+            <Text className="text-xs" style={{ color: subtextColor }}>
+              glasses/day
             </Text>
           </View>
         </View>
 
-        {/* Insights */}
-        <View style={styles.insightsSection}>
-          <Text style={styles.insightsTitle}>Insights</Text>
+        {/* Calorie Chart */}
+        <View 
+          className="rounded-2xl p-4 mb-6"
+          style={{ backgroundColor: cardBackground }}
+        >
+          <Text className="text-lg font-semibold mb-4" style={{ color: textColor }}>
+            Calorie Intake
+          </Text>
           
-          {streak > 0 && (
-            <View style={styles.insightCard}>
-              <Text style={styles.insightText}>
-                🔥 Amazing! You're on a {streak}-day logging streak!
-              </Text>
-            </View>
-          )}
-
-          {todayCalories > userGoal && (
-            <View style={styles.insightCard}>
-              <Text style={styles.insightText}>
-                🎯 You've exceeded your daily goal today. Great job!
-              </Text>
-            </View>
-          )}
-
-          {weekAverage < userGoal * 0.8 && (
-            <View style={styles.insightCard}>
-              <Text style={styles.insightText}>
-                💡 Your weekly average is below your goal. Consider adding more nutritious meals!
-              </Text>
-            </View>
-          )}
-
-          {weeklyData.filter(d => d.meals > 0).length === 7 && (
-            <View style={styles.insightCard}>
-              <Text style={styles.insightText}>
-                ⭐ Perfect week! You logged meals every day this week.
+          {currentData.length > 0 ? (
+            <>
+              {renderBarChart(currentData, maxCalories)}
+              <View className="flex-row justify-between mt-4">
+                <Text className="text-sm" style={{ color: subtextColor }}>
+                  0 cal
+                </Text>
+                <Text className="text-sm" style={{ color: subtextColor }}>
+                  {maxCalories} cal
+                </Text>
+              </View>
+            </>
+          ) : (
+            <View className="items-center py-8">
+              <Text className="text-4xl mb-2">📊</Text>
+              <Text className="text-center" style={{ color: subtextColor }}>
+                No data available yet
               </Text>
             </View>
           )}
         </View>
+
+        {/* Weekly Summary */}
+        <View 
+          className="rounded-2xl p-4 mb-6"
+          style={{ backgroundColor: cardBackground }}
+        >
+          <Text className="text-lg font-semibold mb-4" style={{ color: textColor }}>
+            This Week's Highlights
+          </Text>
+          
+          <View className="space-y-3">
+            <View className="flex-row items-center">
+              <View className="w-8 h-8 rounded-full bg-[#A8E6CF] items-center justify-center mr-3">
+                <Ionicons name="checkmark" size={16} color="white" />
+              </View>
+              <Text style={{ color: textColor }}>
+                Logged meals for {stats.streakDays} consecutive days
+              </Text>
+            </View>
+            
+            <View className="flex-row items-center">
+              <View className="w-8 h-8 rounded-full bg-[#FFD3B6] items-center justify-center mr-3">
+                <Ionicons name="trending-up" size={16} color="white" />
+              </View>
+              <Text style={{ color: textColor }}>
+                Average {stats.avgCalories} calories per day
+              </Text>
+            </View>
+            
+            <View className="flex-row items-center">
+              <View className="w-8 h-8 rounded-full bg-[#4FC3F7] items-center justify-center mr-3">
+                <Ionicons name="water" size={16} color="white" />
+              </View>
+              <Text style={{ color: textColor }}>
+                Staying hydrated with {stats.waterAvg} glasses daily
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Motivational Card */}
+        <View 
+          className="rounded-2xl p-6"
+          style={{ backgroundColor: '#A8E6CF' }}
+        >
+          <View className="flex-row items-center mb-3">
+            <Text className="text-2xl mr-3">🎉</Text>
+            <Text className="text-white font-bold text-lg">
+              Keep it up!
+            </Text>
+          </View>
+          <Text className="text-white">
+            {stats.streakDays > 0 
+              ? `You're on a ${stats.streakDays}-day streak! Consistency is key to building healthy habits.`
+              : "Start your healthy journey today! Log your first meal to begin building positive habits."
+            }
+          </Text>
+        </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  header: {
-    paddingTop: 60,
-    paddingBottom: 30,
-    paddingHorizontal: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    opacity: 0.9,
-  },
-  content: {
-    flex: 1,
-    paddingTop: 20,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 20,
-    marginBottom: 20,
-  },
-  statCard: {
-    width: '48%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 12,
-    marginRight: '2%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1E293B',
-    marginTop: 8,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#64748B',
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  chartSection: {
-    paddingHorizontal: 20,
-    marginBottom: 20,
-  },
-  chartTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1E293B',
-    marginBottom: 16,
-  },
-  chart: {
-    borderRadius: 16,
-  },
-  goalSection: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  goalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1E293B',
-    marginBottom: 16,
-  },
-  goalProgress: {
-    alignItems: 'center',
-  },
-  progressBar: {
-    width: '100%',
-    height: 8,
-    backgroundColor: '#E2E8F0',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginBottom: 8,
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#22C55E',
-    borderRadius: 4,
-  },
-  goalText: {
-    fontSize: 14,
-    color: '#64748B',
-    fontWeight: '500',
-  },
-  insightsSection: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-  insightsTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1E293B',
-    marginBottom: 16,
-  },
-  insightCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  insightText: {
-    fontSize: 14,
-    color: '#64748B',
-    lineHeight: 20,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#64748B',
-    fontWeight: '500',
-  },
-});

@@ -1,30 +1,48 @@
-import React from 'react';
-import { View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Animated, Easing } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 interface CircularProgressProps {
-  progress: number; // 0 to 1
   size: number;
-  strokeWidth: number;
-  color: string;
-  backgroundColor: string;
+  progress: number; // 0-100
+  strokeWidth?: number;
+  color?: string;
+  backgroundColor?: string;
+  children?: React.ReactNode;
 }
 
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
 export function CircularProgress({
-  progress,
   size,
-  strokeWidth,
-  color,
-  backgroundColor,
+  progress,
+  strokeWidth = 8,
+  color = '#A8E6CF',
+  backgroundColor = '#E0E0E0',
+  children,
 }: CircularProgressProps) {
+  const animatedValue = useRef(new Animated.Value(0)).current;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - progress * circumference;
+
+  useEffect(() => {
+    Animated.timing(animatedValue, {
+      toValue: Math.min(progress, 100),
+      duration: 1000,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [progress]);
+
+  const strokeDashoffset = animatedValue.interpolate({
+    inputRange: [0, 100],
+    outputRange: [circumference, 0],
+  });
 
   return (
-    <View style={{ width: size, height: size }}>
-      <Svg width={size} height={size}>
-        {/* Background circle */}
+    <View style={{ width: size, height: size, position: 'relative' }}>
+      <Svg width={size} height={size} style={{ position: 'absolute' }}>
+        {/* Background Circle */}
         <Circle
           cx={size / 2}
           cy={size / 2}
@@ -33,8 +51,9 @@ export function CircularProgress({
           strokeWidth={strokeWidth}
           fill="transparent"
         />
-        {/* Progress circle */}
-        <Circle
+        
+        {/* Progress Circle */}
+        <AnimatedCircle
           cx={size / 2}
           cy={size / 2}
           r={radius}
@@ -47,6 +66,23 @@ export function CircularProgress({
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
       </Svg>
+      
+      {/* Center Content */}
+      {children && (
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          {children}
+        </View>
+      )}
     </View>
   );
 }

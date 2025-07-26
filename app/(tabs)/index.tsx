@@ -1,268 +1,343 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  useColorScheme,
+  Animated,
+  Dimensions,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Plus, Camera } from 'lucide-react-native';
-import { blink } from '@/lib/blink';
-import { CircularProgress } from '@/components/CircularProgress';
-import { MealCard } from '@/components/MealCard';
-import { LinearGradient } from 'expo-linear-gradient';
+import { blink } from '../../lib/blink';
+import { CircularProgress } from '../../components/CircularProgress';
+import { MealCard } from '../../components/MealCard';
+import { WaterGlass } from '../../components/WaterGlass';
 
-interface Meal {
-  id: string;
-  image_url: string;
-  calories: number;
-  food_name: string;
-  notes?: string;
-  meal_type: string;
-  created_at: string;
-}
+const { width } = Dimensions.get('window');
 
-interface UserGoal {
-  daily_calorie_goal: number;
-}
-
-export default function Home() {
-  const [meals, setMeals] = useState<Meal[]>([]);
-  const [userGoal, setUserGoal] = useState<UserGoal>({ daily_calorie_goal: 2000 });
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+export default function HomeScreen() {
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  
   const [user, setUser] = useState(null);
+  const [meals, setMeals] = useState([]);
+  const [dailyCalories, setDailyCalories] = useState(0);
+  const [dailyGoal, setDailyGoal] = useState(2000);
+  const [waterGlasses, setWaterGlasses] = useState(0);
+  const [waterGoal] = useState(8);
+  const [greeting, setGreeting] = useState('');
+  
+  const fadeAnim = new Animated.Value(0);
+  const slideAnim = new Animated.Value(50);
+
+  useEffect(() => {
+    // Animate entrance
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Set greeting based on time
+    const hour = new Date().getHours();
+    if (hour < 12) setGreeting('Good Morning');
+    else if (hour < 18) setGreeting('Good Afternoon');
+    else setGreeting('Good Evening');
+  }, []);
 
   useEffect(() => {
     const unsubscribe = blink.auth.onAuthStateChanged((state) => {
       setUser(state.user);
       if (state.user) {
-        loadData();
+        loadTodayData();
       }
     });
     return unsubscribe;
   }, []);
 
-  const loadData = async () => {
+  const loadTodayData = async () => {
     try {
-      const userData = await blink.auth.me();
-      if (!userData) return;
-
-      // Load today's meals
       const today = new Date().toISOString().split('T')[0];
+      
+      // Load today's meals
       const mealsData = await blink.db.meals.list({
         where: { 
-          user_id: userData.id,
-          created_at: { gte: `${today}T00:00:00.000Z` }
+          user_id: user?.id,
+          created_at: { gte: today + 'T00:00:00.000Z' }
         },
         orderBy: { created_at: 'desc' },
-        limit: 20
+        limit: 10
       });
-
-      // Load user goals
-      const goalsData = await blink.db.userGoals.list({
-        where: { user_id: userData.id },
-        limit: 1
+      
+      setMeals(mealsData);
+      
+      // Calculate total calories
+      const totalCalories = mealsData.reduce((sum, meal) => sum + (meal.calories || 0), 0);
+      setDailyCalories(totalCalories);
+      
+      // Load water intake
+      const waterData = await blink.db.hydration_logs.list({
+        where: { 
+          user_id: user?.id,
+          logged_at: { gte: today + 'T00:00:00.000Z' }
+        }
       });
-
-      setMeals(mealsData || []);
-      if (goalsData && goalsData.length > 0) {
-        setUserGoal(goalsData[0]);
-      }
+      
+      const totalWater = waterData.reduce((sum, log) => sum + (log.glasses || 0), 0);
+      setWaterGlasses(totalWater);
+      
     } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setLoading(false);
+      console.error('Error loading today data:', error);
     }
   };
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
-  }, []);
-
-  const totalCalories = meals.reduce((sum, meal) => sum + meal.calories, 0);
-  const progress = Math.min(totalCalories / userGoal.daily_calorie_goal, 1);
-
-  const openCamera = () => {
-    router.push('/camera');
+  const addWaterGlass = async () => {
+    try {
+      await blink.db.hydration_logs.create({
+        id: `water_${Date.now()}`,
+        user_id: user?.id,
+        glasses: 1,
+        logged_at: new Date().toISOString()
+      });
+      setWaterGlasses(prev => prev + 1);
+    } catch (error) {
+      console.error('Error adding water:', error);
+    }
   };
 
-  if (loading) {
+  const backgroundColor = isDark ? '#1A1A1A' : '#FFFFFF';
+  const cardBackground = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(168, 230, 207, 0.1)';
+  const textColor = isDark ? '#FFFFFF' : '#333333';
+  const subtextColor = isDark ? '#CCCCCC' : '#666666';
+
+  if (!user) {
     return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading your meals...</Text>
-      </View>
+      <SafeAreaView style={{ flex: 1, backgroundColor }}>
+        <View className="flex-1 justify-center items-center px-6">
+          <Text className="text-2xl font-bold mb-4" style={{ color: textColor }}>
+            Welcome to AI Calories Tracker! 🥗
+          </Text>
+          <Text className="text-center mb-8" style={{ color: subtextColor }}>
+            Please sign in to start tracking your healthy habits
+          </Text>
+          <TouchableOpacity
+            onPress={() => blink.auth.login()}
+            className="bg-[#A8E6CF] px-8 py-4 rounded-full"
+          >
+            <Text className="text-white font-semibold text-lg">Sign In</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={['#22C55E', '#16A34A']}
-        style={styles.header}
+    <SafeAreaView style={{ flex: 1, backgroundColor }}>
+      <Animated.View 
+        style={{ 
+          flex: 1, 
+          opacity: fadeAnim,
+          transform: [{ translateY: slideAnim }]
+        }}
       >
-        <Text style={styles.headerTitle}>AI Calories Tracker</Text>
-        <Text style={styles.headerSubtitle}>Track your healthy habits</Text>
-      </LinearGradient>
+        <ScrollView 
+          className="flex-1 px-4"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 120 }}
+        >
+          {/* Header */}
+          <View className="flex-row justify-between items-center mt-4 mb-6">
+            <View>
+              <Text className="text-lg" style={{ color: subtextColor }}>
+                {greeting} 👋
+              </Text>
+              <Text className="text-2xl font-bold" style={{ color: textColor }}>
+                {user?.displayName || user?.email?.split('@')[0] || 'Friend'}
+              </Text>
+            </View>
+            <TouchableOpacity 
+              className="w-12 h-12 rounded-full items-center justify-center"
+              style={{ backgroundColor: cardBackground }}
+            >
+              <Ionicons name="notifications-outline" size={24} color="#A8E6CF" />
+            </TouchableOpacity>
+          </View>
 
-      <ScrollView
-        style={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {/* Daily Progress */}
-        <View style={styles.progressSection}>
-          <CircularProgress
-            progress={progress}
-            size={160}
-            strokeWidth={12}
-            color="#22C55E"
-            backgroundColor="#E2E8F0"
-          />
-          <View style={styles.progressInfo}>
-            <Text style={styles.caloriesText}>{totalCalories}</Text>
-            <Text style={styles.caloriesLabel}>of {userGoal.daily_calorie_goal} calories</Text>
-            <Text style={styles.remainingText}>
-              {userGoal.daily_calorie_goal - totalCalories > 0 
-                ? `${userGoal.daily_calorie_goal - totalCalories} remaining`
-                : 'Goal reached! 🎉'
+          {/* Daily Progress Card */}
+          <View 
+            className="rounded-3xl p-6 mb-6"
+            style={{ 
+              backgroundColor: cardBackground,
+              shadowColor: '#A8E6CF',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.1,
+              shadowRadius: 12,
+              elevation: 5,
+            }}
+          >
+            <Text className="text-lg font-semibold mb-4" style={{ color: textColor }}>
+              Today's Progress
+            </Text>
+            
+            <View className="flex-row justify-between items-center">
+              <View className="flex-1">
+                <CircularProgress
+                  size={120}
+                  progress={(dailyCalories / dailyGoal) * 100}
+                  strokeWidth={8}
+                  color="#A8E6CF"
+                  backgroundColor={isDark ? '#333333' : '#F0F0F0'}
+                >
+                  <View className="items-center">
+                    <Text className="text-2xl font-bold" style={{ color: textColor }}>
+                      {dailyCalories}
+                    </Text>
+                    <Text className="text-sm" style={{ color: subtextColor }}>
+                      of {dailyGoal} cal
+                    </Text>
+                  </View>
+                </CircularProgress>
+              </View>
+              
+              <View className="flex-1 ml-6">
+                <View className="mb-4">
+                  <Text className="text-sm font-medium mb-2" style={{ color: textColor }}>
+                    Water Intake 💧
+                  </Text>
+                  <View className="flex-row items-center">
+                    <WaterGlass 
+                      filled={waterGlasses} 
+                      total={waterGoal} 
+                      size={40}
+                    />
+                    <Text className="ml-3 text-lg font-semibold" style={{ color: textColor }}>
+                      {waterGlasses}/{waterGoal}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={addWaterGlass}
+                    className="bg-[#A8E6CF] px-4 py-2 rounded-full mt-2"
+                  >
+                    <Text className="text-white text-sm font-medium text-center">
+                      Add Glass
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* Quick Actions */}
+          <View className="flex-row justify-between mb-6">
+            <TouchableOpacity
+              onPress={() => router.push('/camera')}
+              className="flex-1 mr-2 rounded-2xl p-4 items-center"
+              style={{ backgroundColor: '#A8E6CF' }}
+            >
+              <Ionicons name="camera" size={28} color="white" />
+              <Text className="text-white font-semibold mt-2">Scan Food</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              onPress={() => router.push('/(tabs)/log')}
+              className="flex-1 ml-2 rounded-2xl p-4 items-center"
+              style={{ backgroundColor: '#FFD3B6' }}
+            >
+              <Ionicons name="mic" size={28} color="white" />
+              <Text className="text-white font-semibold mt-2">Voice Log</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Recent Meals */}
+          <View className="mb-6">
+            <View className="flex-row justify-between items-center mb-4">
+              <Text className="text-xl font-bold" style={{ color: textColor }}>
+                Today's Meals
+              </Text>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/log')}>
+                <Text className="text-[#A8E6CF] font-medium">View All</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {meals.length === 0 ? (
+              <View 
+                className="rounded-2xl p-8 items-center"
+                style={{ backgroundColor: cardBackground }}
+              >
+                <Text className="text-6xl mb-4">🥦</Text>
+                <Text className="text-lg font-semibold mb-2" style={{ color: textColor }}>
+                  No meals logged yet
+                </Text>
+                <Text className="text-center" style={{ color: subtextColor }}>
+                  Start by scanning your first meal!
+                </Text>
+                <TouchableOpacity
+                  onPress={() => router.push('/camera')}
+                  className="bg-[#A8E6CF] px-6 py-3 rounded-full mt-4"
+                >
+                  <Text className="text-white font-semibold">Add Meal</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View>
+                {meals.slice(0, 3).map((meal) => (
+                  <MealCard
+                    key={meal.id}
+                    meal={meal}
+                    onPress={() => router.push(`/meal-details?id=${meal.id}`)}
+                    isDark={isDark}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* AI Suggestions */}
+          <View 
+            className="rounded-2xl p-4 mb-6"
+            style={{ backgroundColor: '#FFD3B6' }}
+          >
+            <View className="flex-row items-center mb-3">
+              <Ionicons name="bulb" size={20} color="white" />
+              <Text className="text-white font-semibold ml-2">AI Suggestion</Text>
+            </View>
+            <Text className="text-white">
+              {dailyCalories < dailyGoal * 0.5 
+                ? "You're doing great! Consider adding some protein-rich snacks to reach your goal. 🥜"
+                : dailyCalories > dailyGoal * 0.9
+                ? "Almost at your goal! Maybe try some herbal tea instead of more calories. 🍵"
+                : "Perfect pace! Keep up the balanced eating throughout the day. ✨"
               }
             </Text>
           </View>
-        </View>
+        </ScrollView>
 
-        {/* Today's Meals */}
-        <View style={styles.mealsSection}>
-          <Text style={styles.sectionTitle}>Today's Meals</Text>
-          {meals.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Camera size={48} color="#94A3B8" />
-              <Text style={styles.emptyText}>No meals logged today</Text>
-              <Text style={styles.emptySubtext}>Tap the camera button to get started!</Text>
-            </View>
-          ) : (
-            meals.map((meal) => (
-              <MealCard key={meal.id} meal={meal} />
-            ))
-          )}
-        </View>
-      </ScrollView>
-
-      {/* Floating Action Button */}
-      <TouchableOpacity style={styles.fab} onPress={openCamera}>
-        <LinearGradient
-          colors={['#22C55E', '#16A34A']}
-          style={styles.fabGradient}
+        {/* Floating Action Button */}
+        <TouchableOpacity
+          onPress={() => router.push('/camera')}
+          className="absolute bottom-32 right-6 w-16 h-16 rounded-full items-center justify-center shadow-lg"
+          style={{ 
+            backgroundColor: '#A8E6CF',
+            shadowColor: '#A8E6CF',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
+            elevation: 8,
+          }}
         >
-          <Plus size={28} color="#FFFFFF" />
-        </LinearGradient>
-      </TouchableOpacity>
-    </View>
+          <Ionicons name="add" size={32} color="white" />
+        </TouchableOpacity>
+      </Animated.View>
+    </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  header: {
-    paddingTop: 60,
-    paddingBottom: 30,
-    paddingHorizontal: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    opacity: 0.9,
-  },
-  content: {
-    flex: 1,
-  },
-  progressSection: {
-    alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 20,
-  },
-  progressInfo: {
-    position: 'absolute',
-    alignItems: 'center',
-  },
-  caloriesText: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#1E293B',
-  },
-  caloriesLabel: {
-    fontSize: 14,
-    color: '#64748B',
-    marginBottom: 4,
-  },
-  remainingText: {
-    fontSize: 12,
-    color: '#22C55E',
-    fontWeight: '500',
-  },
-  mealsSection: {
-    paddingHorizontal: 20,
-    paddingBottom: 100,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1E293B',
-    marginBottom: 16,
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#64748B',
-    marginTop: 16,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#94A3B8',
-    marginTop: 4,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 100,
-    right: 20,
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  fabGradient: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#64748B',
-    fontWeight: '500',
-  },
-});
