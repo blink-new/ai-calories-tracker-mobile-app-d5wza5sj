@@ -1,154 +1,194 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Animated, Easing } from 'react-native';
+import React from 'react';
+import { View, StyleSheet, Animated } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface WaterGlassProps {
-  filled: number;
-  total: number;
-  size?: number;
+  glasses: number;
+  maxGlasses: number;
 }
 
-export function WaterGlass({ filled, total, size = 50 }: WaterGlassProps) {
-  const fillAnimation = useRef(new Animated.Value(0)).current;
-  const waveAnimation = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const fillPercentage = Math.min(filled / total, 1);
-    
-    // Animate fill level
-    Animated.timing(fillAnimation, {
-      toValue: fillPercentage,
-      duration: 800,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-
-    // Animate wave effect
-    Animated.loop(
-      Animated.timing(waveAnimation, {
-        toValue: 1,
-        duration: 2000,
-        easing: Easing.inOut(Easing.sin),
-        useNativeDriver: true,
-      })
-    ).start();
-  }, [filled, total]);
-
-  const glassHeight = size;
-  const glassWidth = size * 0.7;
-
+export function WaterGlass({ glasses, maxGlasses }: WaterGlassProps) {
+  const fillPercentage = Math.min((glasses / maxGlasses) * 100, 100);
+  
   return (
-    <View 
-      style={{
-        width: glassWidth,
-        height: glassHeight,
-        position: 'relative',
-      }}
-    >
-      {/* Glass container */}
-      <View
-        style={{
-          width: glassWidth,
-          height: glassHeight,
-          borderWidth: 2,
-          borderColor: '#A8E6CF',
-          borderRadius: 8,
-          borderTopWidth: 1,
-          backgroundColor: 'transparent',
-          overflow: 'hidden',
-        }}
-      >
-        {/* Water fill */}
-        <Animated.View
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            backgroundColor: '#A8E6CF',
-            opacity: 0.7,
-            height: fillAnimation.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, glassHeight - 4],
-            }),
-            borderRadius: 6,
-          }}
-        />
-        
-        {/* Wave effect */}
-        {filled > 0 && (
-          <Animated.View
-            style={{
-              position: 'absolute',
-              bottom: fillAnimation.interpolate({
-                inputRange: [0, 1],
-                outputRange: [-10, glassHeight - 14],
-              }),
-              left: -5,
-              right: -5,
-              height: 10,
-              backgroundColor: '#A8E6CF',
-              opacity: 0.5,
-              borderRadius: 5,
-              transform: [
+    <View style={styles.container}>
+      {/* Glass Container */}
+      <View style={styles.glassContainer}>
+        {/* Glass Background */}
+        <LinearGradient
+          colors={['rgba(255,255,255,0.9)', 'rgba(255,255,255,0.7)']}
+          style={styles.glassBackground}
+        >
+          {/* Water Fill */}
+          <View style={styles.waterContainer}>
+            <LinearGradient
+              colors={['#3b82f6', '#1d4ed8']}
+              style={[
+                styles.waterFill,
                 {
-                  scaleX: waveAnimation.interpolate({
-                    inputRange: [0, 0.5, 1],
-                    outputRange: [1, 1.1, 1],
-                  }),
-                },
-                {
-                  translateY: waveAnimation.interpolate({
-                    inputRange: [0, 0.5, 1],
-                    outputRange: [0, -2, 0],
-                  }),
-                },
-              ],
-            }}
+                  height: `${fillPercentage}%`,
+                }
+              ]}
+            />
+            
+            {/* Water Surface Animation */}
+            {fillPercentage > 0 && (
+              <View style={[styles.waterSurface, { bottom: `${100 - fillPercentage}%` }]}>
+                <LinearGradient
+                  colors={['rgba(59, 130, 246, 0.3)', 'rgba(59, 130, 246, 0.1)']}
+                  style={styles.surfaceGradient}
+                />
+              </View>
+            )}
+          </View>
+          
+          {/* Glass Shine Effect */}
+          <LinearGradient
+            colors={['rgba(255,255,255,0.4)', 'transparent']}
+            style={styles.glassShine}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
           />
-        )}
+        </LinearGradient>
+        
+        {/* Glass Border */}
+        <View style={styles.glassBorder} />
       </View>
       
-      {/* Bubbles effect */}
-      {filled > 0 && (
-        <>
-          <Animated.View
-            style={{
-              position: 'absolute',
-              width: 4,
-              height: 4,
-              backgroundColor: '#A8E6CF',
-              borderRadius: 2,
-              left: glassWidth * 0.3,
-              bottom: fillAnimation.interpolate({
-                inputRange: [0, 1],
-                outputRange: [5, glassHeight * 0.3],
-              }),
-              opacity: waveAnimation.interpolate({
-                inputRange: [0, 0.5, 1],
-                outputRange: [0.3, 0.8, 0.3],
-              }),
-            }}
+      {/* Water Drops Animation */}
+      {Array.from({ length: 3 }).map((_, index) => (
+        <View
+          key={index}
+          style={[
+            styles.waterDrop,
+            {
+              left: 20 + index * 15,
+              top: 10 + index * 5,
+              opacity: fillPercentage > 20 ? 0.6 : 0,
+            }
+          ]}
+        >
+          <LinearGradient
+            colors={['#3b82f6', '#1d4ed8']}
+            style={styles.dropGradient}
           />
-          <Animated.View
-            style={{
-              position: 'absolute',
-              width: 3,
-              height: 3,
-              backgroundColor: '#A8E6CF',
-              borderRadius: 1.5,
-              right: glassWidth * 0.3,
-              bottom: fillAnimation.interpolate({
-                inputRange: [0, 1],
-                outputRange: [8, glassHeight * 0.5],
-              }),
-              opacity: waveAnimation.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0.5, 0.2],
-              }),
-            }}
+        </View>
+      ))}
+      
+      {/* Progress Indicators */}
+      <View style={styles.progressIndicators}>
+        {Array.from({ length: maxGlasses }).map((_, index) => (
+          <View
+            key={index}
+            style={[
+              styles.progressDot,
+              {
+                backgroundColor: index < glasses ? '#3b82f6' : 'rgba(59, 130, 246, 0.2)',
+                transform: [{ scale: index < glasses ? 1 : 0.7 }],
+              }
+            ]}
           />
-        </>
-      )}
+        ))}
+      </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+    position: 'relative',
+  },
+  glassContainer: {
+    width: 80,
+    height: 100,
+    position: 'relative',
+  },
+  glassBackground: {
+    flex: 1,
+    borderRadius: 12,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  waterContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    borderRadius: 12,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    overflow: 'hidden',
+  },
+  waterFill: {
+    width: '100%',
+    borderRadius: 12,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  waterSurface: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 4,
+  },
+  surfaceGradient: {
+    flex: 1,
+    borderRadius: 2,
+  },
+  glassShine: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    width: 16,
+    height: 32,
+    borderRadius: 8,
+  },
+  glassBorder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderWidth: 2,
+    borderColor: 'rgba(59, 130, 246, 0.2)',
+    borderRadius: 12,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+  },
+  waterDrop: {
+    position: 'absolute',
+    width: 6,
+    height: 8,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  dropGradient: {
+    flex: 1,
+    borderRadius: 3,
+  },
+  progressIndicators: {
+    flexDirection: 'row',
+    marginTop: 12,
+    gap: 4,
+  },
+  progressDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+});
